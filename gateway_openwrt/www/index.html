@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mawson Station MX921 LoRa Repeater Bridge</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-branding">
+        <div class="badge-station">MAWSON STATION, ANTARCTICA</div>
+        <h1>MX921 LoRa Repeater Bridge</h1>
+        <p class="subtitle">915 MHz Telemetry, Alarm Monitoring & Remote Programming Gateway</p>
+      </div>
+
+      <div class="header-controls">
+        <div class="control-group">
+          <label for="nodeSelect">Target Node:</label>
+          <select id="nodeSelect" class="form-select">
+            <option value="1" selected>Node 1: Mount Henderson (~13 km SSE)</option>
+            <option value="2">Node 2: Mount Parsons (Standby)</option>
+          </select>
+        </div>
+
+        <div class="gateway-status-pill">
+          <span class="status-dot pulse"></span>
+          <span id="gatewayUtc">UTC: Syncing...</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs (Modern WAI-ARIA pattern) -->
+    <nav class="tabs-nav" aria-label="Main Navigation">
+      <div class="tablist" role="tablist" aria-label="Dashboard sections">
+        <button type="button" role="tab" id="tab-status" aria-selected="true" class="tab-button" focusgroupstart>
+          <span class="tab-icon">📡</span> Tab 1: Live Status & Alarms
+        </button>
+        <button type="button" role="tab" id="tab-control" aria-selected="false" class="tab-button">
+          <span class="tab-icon">⚡</span> Tab 2: Quick Control & Schedule
+        </button>
+        <button type="button" role="tab" id="tab-prog" aria-selected="false" class="tab-button">
+          <span class="tab-icon">💻</span> Tab 3: Channel Programming & Console
+        </button>
+        <button type="button" role="tab" id="tab-diag" aria-selected="false" class="tab-button">
+          <span class="tab-icon">📊</span> Tab 4: Diagnostics & Packet Log
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Tab Content Area -->
+    <main class="tab-panels">
+      <!-- TAB 1: Live Status & Alarms -->
+      <section role="tabpanel" id="panel-status" aria-labelledby="tab-status" class="tab-panel active">
+        <div class="panel-content">
+          <!-- Top KPI Cards -->
+          <div class="kpi-grid">
+            <div class="card kpi-card">
+              <span class="card-label">Power / Sleep State</span>
+              <div id="badgePowerState" class="badge-status badge-success">AWAKE - SCHEDULED</div>
+              <span id="txtLastSeen" class="card-subtext">Last contact: --</span>
+            </div>
+
+            <div class="card kpi-card">
+              <span class="card-label">LoRa Link (916.8 MHz)</span>
+              <div class="metric-group">
+                <span id="valRssi" class="metric-val">-66 <small>dBm</small></span>
+                <span id="valSnr" class="metric-badge badge-snr">SNR: +10.2 dB</span>
+              </div>
+              <div class="rssi-bar-track">
+                <div id="rssiBarFill" class="rssi-bar-fill" style="width: 75%;"></div>
+              </div>
+            </div>
+
+            <div class="card kpi-card">
+              <span class="card-label">Active Channel</span>
+              <div class="metric-group">
+                <span id="valActiveChannel" class="metric-val">CH 1</span>
+                <span id="badgeKnockdown" class="badge-status badge-success">REPEATER ON</span>
+              </div>
+              <span id="txtChannelFreq" class="card-subtext">RX: 149.825 MHz / TX: 149.225 MHz</span>
+            </div>
+
+            <div class="card kpi-card">
+              <span class="card-label">Supply & Environment</span>
+              <div class="metric-group">
+                <span id="valVbat" class="metric-val">5.0 <small>V</small></span>
+                <span id="valTemp" class="metric-val">21.5 <small>°C</small></span>
+              </div>
+              <span class="card-subtext">Vext Rail: Active (MAX3232 ON)</span>
+            </div>
+          </div>
+
+          <!-- Live Repeater Broadcast Banner -->
+          <div id="bannerBeacon" class="banner-box beacon-banner" style="display: none;">
+            <span class="beacon-icon">📢</span>
+            <div class="banner-text">
+              <span class="card-label" style="color: var(--accent-cyan);">Live Repeater Broadcast Message:</span>
+              <strong id="txtBeaconMsg" style="font-size: 1.15rem; color: #fff;">--</strong>
+            </div>
+          </div>
+
+          <!-- Middle Split: Live Analog RSSI Meter & Alarm Indicators -->
+          <div class="dashboard-split">
+            <!-- Left: Analog RSSI Receiver Meter -->
+            <div class="card card-meter">
+              <div class="card-header">
+                <h3>Live Repeater RX Signal Strength (CN3 Analog RSSI)</h3>
+                <span class="badge-pill">Scaled 0-5V Divider</span>
+              </div>
+              
+              <div class="meter-wrapper">
+                <div class="meter-dial">
+                  <div id="meterNeedle" class="meter-needle" style="transform: rotate(-30deg);"></div>
+                  <div class="meter-center"></div>
+                </div>
+                <div class="meter-readout">
+                  <span id="valAnalogRssi" class="meter-value">-105.0</span>
+                  <span class="meter-unit">dBm</span>
+                </div>
+              </div>
+              <div class="meter-scale-labels">
+                <span>-120 dBm (Floor)</span>
+                <span>-100 dBm</span>
+                <span>-80 dBm</span>
+                <span>-60 dBm (Strong)</span>
+              </div>
+            </div>
+
+            <!-- Right: Critical Alarms Grid -->
+            <div class="card card-alarms">
+              <div class="card-header">
+                <h3>Hardware Fault & Alarm Status</h3>
+                <span id="badgeOverallAlarm" class="badge-status badge-success">ALL SYSTEMS NOMINAL</span>
+              </div>
+
+              <div class="alarms-grid">
+                <div class="alarm-item" id="alarmVswr">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>High Reflected Power / VSWR</strong>
+                    <small>MX921 Internal Fault Pin</small>
+                  </div>
+                  <span class="alarm-tag">NOMINAL</span>
+                </div>
+
+                <div class="alarm-item" id="alarmFwdPower">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>Low Forward Power</strong>
+                    <small>PA Output below threshold</small>
+                  </div>
+                  <span class="alarm-tag">NOMINAL</span>
+                </div>
+
+                <div class="alarm-item" id="alarmTemp">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>High PA Over-Temperature</strong>
+                    <small>Repeater Heatsink Thermal Fault</small>
+                  </div>
+                  <span class="alarm-tag">NOMINAL</span>
+                </div>
+
+                <div class="alarm-item" id="alarmVoltage">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>DC Supply Voltage</strong>
+                    <small>Site battery bank low voltage</small>
+                  </div>
+                  <span class="alarm-tag">NOMINAL</span>
+                </div>
+
+                <div class="alarm-item" id="alarmPll">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>Synthesizer / PLL Unlock</strong>
+                    <small>Frequency drift or lock error</small>
+                  </div>
+                  <span class="alarm-tag">NOMINAL</span>
+                </div>
+
+                <div class="alarm-item" id="alarmCor">
+                  <span class="alarm-indicator"></span>
+                  <div class="alarm-info">
+                    <strong>COR / Receiver Mute</strong>
+                    <small>Squelch open activity detect</small>
+                  </div>
+                  <span class="alarm-tag">IDLE</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 2: Quick Control & Power Schedule -->
+      <section role="tabpanel" id="panel-control" aria-labelledby="tab-control" class="tab-panel" hidden>
+        <div class="panel-content">
+          <div class="control-grid">
+            <!-- Left: Immediate Controls -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Remote Station Operation</h3>
+              </div>
+
+              <!-- Maintenance Lock Banner -->
+              <div class="banner-box maintenance-banner">
+                <div class="banner-text">
+                  <strong>Maintenance Lock ("Stay Awake")</strong>
+                  <p>Keeps the remote node awake 24/7 in NVS flash. Use during technicians' site visits or active bench testing.</p>
+                </div>
+                <label class="switch">
+                  <input type="checkbox" id="chkMaintLock">
+                  <span class="slider round"></span>
+                </label>
+              </div>
+
+              <!-- Quick Channel Change -->
+              <div class="form-row">
+                <label for="selQuickChannel">Select Operating Channel (1–99):</label>
+                <div class="input-with-button">
+                  <select id="selQuickChannel" class="form-select">
+                    <option value="1">Channel 1 — 149.825 MHz / 149.225 MHz (Primary Repeater)</option>
+                    <option value="2">Channel 2 — 150.150 MHz / 149.550 MHz (Secondary)</option>
+                    <option value="3">Channel 3 — 149.800 MHz / 149.200 MHz</option>
+                    <option value="4">Channel 4 — 149.850 MHz / 149.250 MHz</option>
+                  </select>
+                  <button type="button" id="btnApplyChannel" class="btn btn-primary">Switch Channel</button>
+                </div>
+              </div>
+
+              <!-- Repeater Knockdown Toggle -->
+              <div class="form-row">
+                <label>Repeater Transmitter Inhibit (Hardware Knockdown):</label>
+                <div class="button-group">
+                  <button type="button" id="btnRepeaterEnable" class="btn btn-success">Enable Repeater</button>
+                  <button type="button" id="btnRepeaterKnockdown" class="btn btn-danger">Knock Down (Inhibit)</button>
+                </div>
+                <small class="form-hint">Drives GPIO 4 optocoupler to inhibit repeater PTT line. Held in deep sleep via RTC latch.</small>
+              </div>
+
+              <!-- Force Poll -->
+              <div class="form-row">
+                <label>Immediate Status Request:</label>
+                <button type="button" id="btnForcePoll" class="btn btn-secondary">Force Telemetry Poll</button>
+                <small class="form-hint">Dispatched in the immediate next ACK packet.</small>
+              </div>
+            </div>
+
+            <!-- Right: Power Schedule Configurator -->
+            <div class="card">
+              <div class="card-header">
+                <h3>Deep-Sleep & Wake Window Schedule</h3>
+              </div>
+
+              <div class="form-row">
+                <label for="inpWakeHour">Daily Scheduled Wake Hour (UTC):</label>
+                <input type="number" id="inpWakeHour" class="form-input" min="0" max="23" value="0">
+                <small class="form-hint">Node wakes daily at this hour (e.g. 00:00 UTC = Mawson 05:00 AM).</small>
+              </div>
+
+              <div class="form-row">
+                <label for="inpWakeDuration">Window Duration (Minutes):</label>
+                <input type="number" id="inpWakeDuration" class="form-input" min="10" max="240" value="60">
+                <small class="form-hint">Base window the node stays awake during its scheduled cycle.</small>
+              </div>
+
+              <div class="form-row">
+                <label for="inpHoldoff">Post-Activity Inactivity Hold-Off (Minutes):</label>
+                <input type="number" id="inpHoldoff" class="form-input" min="5" max="60" value="10">
+                <small class="form-hint">Every valid packet received resets this timer. The node never sleeps while active.</small>
+              </div>
+
+              <button type="button" id="btnSaveSchedule" class="btn btn-primary">Update Schedule</button>
+
+              <hr class="divider">
+
+              <h4>Pending Queued Commands (Waiting for Next Node Wake):</h4>
+              <div id="queuedCommandsList" class="queue-list">
+                <p class="empty-state">No commands currently queued.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: Channel Programming & Console -->
+      <section role="tabpanel" id="panel-prog" aria-labelledby="tab-prog" class="tab-panel" hidden>
+        <div class="panel-content">
+          <div class="card">
+            <div class="card-header">
+              <h3>MX921 Channel Memory Table</h3>
+              <button type="button" id="btnReadChannels" class="btn btn-secondary">Read from Repeater</button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Slot</th>
+                    <th>Channel Name</th>
+                    <th>RX Freq (MHz)</th>
+                    <th>TX Freq (MHz)</th>
+                    <th>Bandwidth</th>
+                    <th>CTCSS RX</th>
+                    <th>CTCSS TX</th>
+                    <th>Power</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="tblChannelsBody">
+                  <tr>
+                    <td><strong>01</strong></td>
+                    <td>Mawson VHF Ch 1</td>
+                    <td>149.8250</td>
+                    <td>149.2250</td>
+                    <td>12.5 kHz</td>
+                    <td>123.0 Hz</td>
+                    <td>123.0 Hz</td>
+                    <td>25 W</td>
+                    <td><button type="button" class="btn btn-sm btn-outline">Edit</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>02</strong></td>
+                    <td>Mawson VHF Ch 2</td>
+                    <td>150.1500</td>
+                    <td>149.5500</td>
+                    <td>12.5 kHz</td>
+                    <td>123.0 Hz</td>
+                    <td>123.0 Hz</td>
+                    <td>25 W</td>
+                    <td><button type="button" class="btn btn-sm btn-outline">Edit</button></td>
+                  </tr>
+                  <tr>
+                    <td><strong>03</strong></td>
+                    <td>Mawson Field Air/Ground</td>
+                    <td>149.8000</td>
+                    <td>149.2000</td>
+                    <td>12.5 kHz</td>
+                    <td>None</td>
+                    <td>None</td>
+                    <td>10 W</td>
+                    <td><button type="button" class="btn btn-sm btn-outline">Edit</button></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Live RMENU Pass-Through Terminal -->
+          <div class="card card-terminal">
+            <div class="card-header">
+              <h3>MX921 RMENU Pass-Through Console</h3>
+              <div class="terminal-macros">
+                <button type="button" class="btn btn-xs btn-terminal-macro" data-cmd="STATUS">STATUS</button>
+                <button type="button" class="btn btn-xs btn-terminal-macro" data-cmd="VER">VER</button>
+                <button type="button" class="btn btn-xs btn-terminal-macro" data-cmd="CHAN">CHAN</button>
+                <button type="button" class="btn btn-xs btn-terminal-macro" data-cmd="BATT">BATT</button>
+                <button type="button" class="btn btn-xs btn-terminal-macro" data-cmd="HELP">HELP</button>
+              </div>
+            </div>
+
+            <div id="terminalOutput" class="terminal-screen" aria-live="polite">
+              <div class="terminal-line system">[GATEWAY] RMENU Console Bridge Ready. Serial connection: 9600 / 57600 baud.</div>
+              <div class="terminal-line system">[HINT] Type RMENU commands below or click macro buttons to dispatch over LoRa bridge.</div>
+            </div>
+
+            <form id="frmTerminal" class="terminal-input-bar">
+              <span class="terminal-prompt">RMENU&gt;</span>
+              <input type="text" id="inpTerminalCmd" class="terminal-input" placeholder="Enter command (e.g. STATUS, CHAN 1, VOLT)..." autocomplete="off">
+              <button type="submit" class="btn btn-primary">Send via LoRa</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 4: Diagnostics & Packet Log -->
+      <section role="tabpanel" id="panel-diag" aria-labelledby="tab-diag" class="tab-panel" hidden>
+        <div class="panel-content">
+          <div class="card">
+            <div class="card-header">
+              <h3>Live LoRa Packet Stream (916.8 MHz)</h3>
+              <div class="packet-filters">
+                <button type="button" id="btnFilterAll" class="btn btn-xs btn-primary">All</button>
+                <button type="button" id="btnFilterRx" class="btn btn-xs btn-outline">RX Only</button>
+                <button type="button" id="btnFilterTx" class="btn btn-xs btn-outline">TX Only</button>
+              </div>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table log-table">
+                <thead>
+                  <tr>
+                    <th>Time (UTC)</th>
+                    <th>Dir</th>
+                    <th>RSSI</th>
+                    <th>SNR</th>
+                    <th>Packet Type</th>
+                    <th>Decoded Payload (Plain English)</th>
+                  </tr>
+                </thead>
+                <tbody id="tblPacketLog">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3>Raw Gateway State JSON Viewer</h3>
+            </div>
+            <pre id="jsonStateViewer" class="code-box">Loading state...</pre>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span>Australian Antarctic Division — Mawson Station Telemetry Bridge</span>
+      <span>Duinotech XC-4394 Gateway (Atheros AR9331 OpenWrt + SX1276)</span>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
