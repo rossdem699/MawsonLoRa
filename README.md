@@ -1,154 +1,163 @@
-# Mawson MX921 LoRa Repeater Telemetry & Remote Programming Bridge
+# Mawson MX921 Transparent RS-232-over-LoRa Wireless Bridge
 
 [![Platform](https://img.shields.io/badge/Platform-ESP32--S3%20%7C%20OpenWrt-blue.svg)](https://github.com/rossdem699/MawsonLoRa)
-[![RF](https://img.shields.io/badge/LoRa-916.8%20MHz%20SF10-emerald.svg)](https://github.com/rossdem699/MawsonLoRa)
-[![Status](https://img.shields.io/badge/Status-Phase%201%20%26%203%20Verified-brightgreen.svg)](https://github.com/rossdem699/MawsonLoRa)
+[![RF](https://img.shields.io/badge/LoRa-916.8%20MHz%20SF9%2FSF11-emerald.svg)](https://github.com/rossdem699/MawsonLoRa)
+[![Baud](https://img.shields.io/badge/Serial-57600%20baud%208--N--1-purple.svg)](https://github.com/rossdem699/MawsonLoRa)
 
-A 915 MHz bidirectional LoRa telemetry, alarm monitoring, and remote-programming bridge connecting an off-site **Spectra Engineering MX921 VHF repeater** (Phase 1: Mawson Comms bench POC $\rightarrow$ Mount Henderson ~13 km SSE, extensible to Mount Parsons) with an interactive **4-tab web dashboard** hosted on a **Duinotech XC-4394 OpenWrt LoRa gateway** on the Mawson Station LAN in Antarctica.
+A bidirectional 915 MHz transparent RS-232-over-LoRa serial bridge connecting a **Spectra Engineering MX921 repeater's front RJ45 `MIC` port** (Phase 1: Mawson Comms-room bench testing $\rightarrow$ Mount Henderson ~13 km SSE, extensible to Mount Parsons) to a **Duinotech XC-4394 OpenWrt LoRa gateway** over Mawson Station Ethernet.
+
+Provides:
+- **Virtual Serial Port (TCP Port 9001):** Transparent pipe for Spectra `900Tools` and `PuTTY` / `RMENU` via `socat` on Linux Mint (`/dev/ttyV0`) or `com0com`/`HW VSP3` on Windows.
+- **Hayes-style `+++` AT Command Control:** Local command interception on Port 9001 (`AT+STATUS?`, `AT+AWAKE=1|0`, `AT+SF=9|11`, `AT+SCHED=HH,DUR`).
+- **Lightweight OpenWrt Web Control Bar (`http://<gateway-ip>/`):** Single compact responsive status & control bar.
+- **Remote Spreading Factor Switching with Dead-Man Fallback:** Default **`SF9`** (~120 ms airtime, <500 ms RTT for `900Tools`) with one-click remote switch to **`SF11`** ("Storm Mode" for extreme Antarctic blizzards) and an automatic **60-second dead-man fallback**.
+- **Scheduled Deep-Sleep Power Management:** Switched `Vext` (`GPIO 36`, active LOW) completely cuts power to the MAX3232 transceiver during deep sleep (~1 mA), with scheduled daily wake windows, 10-minute activity watchdog, and persistent NVS Maintenance Lock ("Stay Awake").
 
 ---
 
 ## 1. System Architecture
 
 ```text
-[MX921 Repeater] <---RS-232 (CN4) & Opto/ADC (CN3)---> [Heltec ESP32-S3 WSL V3 + SX1262]
-(Mount Henderson Hut)                                             |
-                                                     916.8 MHz LoRa (SF10 / 125 kHz)
-                                                     ~13 km LOS Link (Mt Hendo <-> Mawson)
-                                                                  |
-[Mawson Comms Techs] <--HTTP (4-Tab UI)-- [OpenWrt AR9331 <---UART---> ATmega328P + SX1276]
- (Mawson Station LAN)                                   (Duinotech XC-4394 Gateway)
+[Spectra MX921 Repeater]
+  └─ Front RJ45 MIC Port (Pin 4 RXD, Pin 5 TXD, Pin 7 GND @ 57,600 baud)
+       │
+[MAX3232 3.3V Transceiver] (Powered via switched Vext GPIO 36)
+       │ (UART1 TX=17, RX=18)
+[Heltec Wireless Stick Lite V3] (ESP32-S3FN8 + SX1262 @ 916.8 MHz)
+       │
+       ▼ (915 MHz LoRa Link: SF9 Normal / SF11 Storm, 125 kHz BW, CR 4/5)
+       │
+[Duinotech XC-4394 Base Gateway]
+  ├── ATmega328P + SX1276 Bridge MCU (LoRa <-> /dev/ttyATH0 @ 115200 baud)
+  └── Atheros AR9331 (OpenWrt Chaos Calmer, 64 MB RAM)
+        ├── TCP Port 9001: Virtual COM Bridge & +++ AT Parser
+        └── uhttpd Web Server: Lightweight Web Control Bar & CGI REST API
+               │
+               ▼ (Mawson Station Ethernet LAN / Wi-Fi)
+[Operator Laptops (Linux Mint / Windows)]
+  ├── Spectra 900Tools (Virtual COM /dev/ttyV0 or COM3)
+  └── Web Browser (http://10.130.1.1/)
 ```
-
-### Key Capabilities
-- **Remote ASCII `RMENU` Programming:** Read and reprogram MX921 channel memory slots, TX/RX frequencies, 12.5/25 kHz channel spacing, and CTCSS/DCS tones remotely without traveling to the mountain site.
-- **Critical Alarm Bursts:** Instant alerts on high reflected power (VSWR / antenna icing), low forward power, PA over-temperature, and PLL frequency unlock.
-- **Live Analog RSSI Meter:** Real-time visual dial showing incoming field radio signal strengths scaled from the MX921 `CN3` 0–5 V analog pin.
-- **Hardware Repeater Knockdown:** Optocoupled line asserting repeater inhibit (`GPIO 4`) to silence stuck field transmitters or runaway repeaters remotely.
-- **Intelligent Sleep State Machine:** Remote node sleeps at ~1 mA to conserve mountain battery banks, waking daily on an RTC schedule or hardware alarm interrupt (`EXT1`), with a 10-minute activity hold-off timer and web-controlled Maintenance Lock ("Stay Awake").
 
 ---
 
-## 2. Hardware Specifications
+## 2. Hardware Interfaces & Pinout
 
 ### Remote Repeater Node (`node_mx921/`)
 - **Microcontroller:** Heltec Wireless Stick Lite V3 (`HTIT-WB32LAF`, ESP32-S3FN8).
-- **LoRa Transceiver:** Semtech SX1262 (863–928 MHz HF).
-- **Power Rail Switching:** `Vext` (`GPIO 36`, active LOW) completely cuts power to the RS-232 transceiver and optocouplers during deep sleep.
-- **Serial Interface:** `UART1` (`TX=GPIO 17`, `RX=GPIO 18`) via `MAX3232` 3.3V RS-232 transceiver wired to MX921 rear `CN4` DB9-M (Pin 2 RX, Pin 3 TX, Pin 5 GND) at 9600 / 57600 baud.
-- **Parallel I/O (`CN3` DB25-F):**
-  - Optocoupled `Alarm 1` & `Alarm 2` on RTC-capable `GPIO 5` & `6` (`EXT1` wakeup).
-  - Optocoupled `COR / Mute` on `GPIO 7`.
-  - Optocoupled Repeater Inhibit output on `GPIO 4` (held during deep sleep via `rtc_gpio_hold_en`).
-  - Resistive voltage divider (`10 kΩ / 18 kΩ`) scaling 0–5 V analog RSSI to 0–3.3 V on `GPIO 1` (`ADC1_CH0`).
+- **LoRa Transceiver:** Semtech SX1262 (Internal SPI: `NSS=8`, `SCK=9`, `MOSI=10`, `MISO=11`, `RST=12`, `BUSY=13`, `DIO1=14`).
+- **Power Rail Switching:** `Vext` (`GPIO 36`, active LOW) powers the MAX3232 during wake windows and cuts it completely during deep sleep.
+- **External Serial:** `UART1` (`TX=GPIO 17`, `RX=GPIO 18`) at `57600 baud` (8-N-1).
+- **Repeater Front RJ45 MIC Pinout (Strictly 3-Wire Interface):**
+  - `RJ45 Pin 4` (MX921 `RXD`) $\leftrightarrow$ MAX3232 `T1OUT`
+  - `RJ45 Pin 5` (MX921 `TXD`) $\leftrightarrow$ MAX3232 `R1IN`
+  - `RJ45 Pin 7` (`GND`) $\leftrightarrow$ MAX3232 `GND`
+  - *(Pins 1, 2, 3, 6, 8 left completely disconnected to isolate +12V mic bias, PTT, and audio lines).*
+
+### FreeRTOS Dual-Core Firmware Architecture
+- **`RadioTask` (Core 0):** Manages SX1262 via `RadioLib`, handles `DIO1` packet RX interrupts, validates CCITT CRC-16 and 4-byte auth tags on control packets, executes synchronized SF switching with 60s dead-man fallback, and transmits queued serial frames.
+- **`UartBridgeTask` (Core 1):** Reads/writes `UART1` (57,600 baud) with **15 ms idle-gap packet coalescing** or **180-byte max payload flush** so `900Tools` requests and `RMENU` screens transmit cleanly without byte fragmentation.
+- **`PowerManagerTask` (Core 1):** Tracks `last_activity_ms`, syncs UTC epoch from gateway ACKs, manages 10-minute activity hold-off, NVS `stay_awake_lock`, and enters deep sleep (~1 mA) between scheduled windows.
 
 ### Mawson Base Gateway (`gateway_mcu/` & `gateway_openwrt/`)
-- **Gateway Hardware:** Duinotech XC-4394 (Dragino LG01 / Yun compatible).
-- **Embedded Linux SoC:** Atheros AR9331 (400 MHz MIPS, 64 MB RAM, OpenWrt Chaos Calmer).
-- **LoRa Microcontroller Bridge:** Microchip ATmega328P connected via internal UART to AR9331 (`/dev/ttyATH0` at 115200 baud) and SPI to an SX1276 transceiver. Memory footprint is strictly **427 bytes SRAM (20.8%)**, preventing buffer overflow.
-- **Local Network Access:** Both physical Ethernet LAN (`eth0`) and Wi-Fi AP (`duinotech-18094a`) are bridged together at static IP **`10.130.1.1`**.
+- **Gateway Hardware:** Duinotech XC-4394 (Atheros AR9331 + ATmega328P + SX1276).
+- **ATmega328P Bridge MCU:** Minimal `arduino-LoRa` sketch passing framed packets between SX1276 SPI and `/dev/ttyATH0` (`115200 baud`), executing local `+SF:<9|11>` commands. Memory footprint is strictly **706 bytes SRAM (34.5%)**.
+- **OpenWrt Daemon (`mx921_daemon.py`):**
+  - Listens on **`TCP Port 9001`** for incoming virtual serial connections.
+  - Intercepts Hayes-style `+++` AT commands or forwards transparent serial frames.
+  - Manages synchronized SF switching and NTP epoch time synchronization.
+  - Maintains atomic state file `/tmp/mx921_state.json`.
 
 ---
 
-## 3. LoRa Physical & Packet Framing Layer
+## 3. Radio Settings & Packet Framing Layer
 
 | Parameter | Value | Details |
 | :--- | :--- | :--- |
-| **Frequency** | `916.8 MHz` | AU915 ISM (Ch 0 centre frequency) |
+| **Frequency** | `916.8 MHz` | AU915 ISM Band |
 | **Bandwidth** | `125 kHz` | Standard narrowband LoRa |
-| **Spreading Factor** | `SF10` | ~ -132 dBm receiver sensitivity floor |
+| **Spreading Factor (Default)** | **`SF9`** | ~120 ms air-time, <500 ms RTT for Spectra `900Tools` |
+| **Spreading Factor (Storm)** | **`SF11`** | Storm Mode (extreme Antarctic weather / blizzard link margin) |
+| **Fallback Watchdog** | **`60 s`** | Automatically reverts node to `SF9` if no valid packets received on new SF |
 | **Coding Rate** | `4/5` | Robust forward error correction |
-| **Sync Word** | `0x12` | Private LoRa network identifier |
-| **CRC** | Enabled | Hardware CCITT-16 verification |
+| **Sync Word** | `0x12` | Private network identifier |
+| **CRC** | Enabled | CCITT CRC-16 hardware verification |
 
-### Compact Binary Packet Framing
+### Packet Structure
 ```text
-[Magic 2B][NodeID 1B][MsgType 1B][Seq 2B][PowerState 1B][Payload N B][AuthTag 4B][CRC16 2B]
+[Magic 2B][NodeID 1B][Type 1B][Seq 2B][Flags 1B][Payload <=180B][CRC16 2B]
 ```
 - **Magic:** `0x4D 0x58` ("MX")
-- **Node IDs:** `0x00` = Mawson Base Gateway, `0x01` = Mount Henderson (~13 km SSE), `0x02` = Mount Parsons
-- **Message Types:** `0x01` PING / Heartbeat, `0x02` Gateway ACK (with UTC time sync), `0x05` RMENU Req, `0x06` RMENU Resp, `0x07` Critical Alarm Burst.
+- **Node IDs:** `0x00` = Base Gateway, `0x01` = Mount Henderson (~13 km SSE), `0x02` = Mount Parsons
+- **Packet Types:** `0x01` DATA (Transparent Serial), `0x02` CTRL (Command), `0x03` ACK (Telemetry Sync), `0x04` PING
 
 ---
 
-## 4. 4-Tab Web Dashboard (`http://10.130.1.1/mx921/`)
+## 4. Virtual COM Port Quick-Connect
 
-Served directly by `uhttpd` on the Duinotech gateway:
+Connect your laptop to the Duinotech XC-4394 via Ethernet or Wi-Fi (`duinotech-18094a` at `10.130.1.1`):
 
-1. **Tab 1 — Live Status & Alarms:**
-   - Power State badge (`AWAKE - SCHEDULED`, `MAINTENANCE LOCK`, `SLEEPING`).
-   - Live LoRa link metrics (RSSI in dBm with signal bar, SNR in dB).
-   - Active VHF Channel, frequencies, repeater knockdown state.
-   - **Animated Analog RSSI Needle Dial** calibrated to the MX921 CN3 receiver line.
-   - Hardware Alarm Badges (VSWR, Low Forward Power, PA Over-Temp, Voltage, PLL Unlock, COR).
-   - **Live Repeater Announcement Banner** (e.g. `"Hello from Mt Henderson Repeater!"`).
-2. **Tab 2 — Quick Control & Power Schedule:**
-   - **"Stay Awake (Maintenance Lock)"** safety toggle switch.
-   - Channel Selector dropdown (1–99) with single-click remote change.
-   - Hardware Repeater Knockdown / Inhibit override buttons.
-   - Wake schedule configurator (Daily UTC hour, window duration, hold-off timer).
-   - Pending Command Queue status inspector.
-3. **Tab 3 — Channel Programming & Console:**
-   - Channel memory slot read/write table.
-   - **Interactive ASCII `RMENU` Terminal Console** pass-through with quick macros (`STATUS`, `VER`, `CHAN`, `BATT`, `HELP`).
-4. **Tab 4 — Diagnostics & Packet Log:**
-   - Live rolling table of every TX and RX LoRa packet.
-   - **Plain English Decoded Payloads** showing message text, node name, battery voltage, temperature, and channel.
-   - Raw state JSON viewer.
+### Linux Mint (`socat`)
+```bash
+# Create local virtual serial port /dev/ttyV0 mapped to TCP Port 9001
+socat pty,link=/dev/ttyV0,raw,echo=0 tcp:10.130.1.1:9001 &
 
----
-
-## 5. Repository Structure
-
-```text
-MawsonLoRa/
-├── CHECKPOINT.md               # Current hardware state & resume instructions
-├── WORKFLOW.md                 # Master phased roadmap and progress checklist
-├── MawsonLoRaRepeaterESP32.md  # Detailed system architecture specification
-├── shared/
-│   └── mx921_packet.h          # Shared binary packet structs, RF constants & CRC16
-├── node_mx921/                 # Heltec Wireless Stick Lite V3 firmware (PlatformIO)
-│   ├── platformio.ini
-│   └── src/
-│       └── main.cpp            # SX1262 RadioLib driver, telemetry & beacon logic
-├── gateway_mcu/                # Duinotech XC-4394 ATmega328P firmware (PlatformIO)
-│   ├── platformio.ini
-│   └── src/
-│       └── main.cpp            # Lightweight transparent UART-to-LoRa bridge (< 430B RAM)
-└── gateway_openwrt/            # OpenWrt background service and web dashboard
-    ├── mx921_daemon.py         # Serial daemon managing state & ACK dispatching
-    ├── init_mx921_daemon       # /etc/init.d/ procd auto-start service script
-    ├── mx921_api.py            # CGI REST API for the dashboard (/www/cgi-bin/mx921_api)
-    └── www/                    # Web frontend (/www/mx921/)
-        ├── index.html          # Accessible 4-tab WAI-ARIA layout
-        ├── style.css           # High-contrast Antarctic dark mode theme
-        └── app.js              # Real-time polling & English payload decoder
+# Open minicom or launch Spectra 900Tools targeting /dev/ttyV0 at 57600 baud
+minicom -D /dev/ttyV0 -b 57600
 ```
 
----
+### Windows Laptop
+1. Open **HW VSP3** (HW Virtual Serial Port) or **com0com**.
+2. Configure TCP Client connection:
+   - **IP Address:** `10.130.1.1`
+   - **Port:** `9001`
+   - **Virtual COM Port:** `COM3`
+3. Launch Spectra `900Tools` or `PuTTY` (Serial `COM3`, 57600 baud, 8-N-1).
 
-## 6. Access & Deployment Reference
-
-### Connecting to the Gateway
-- **IP Address:** `10.130.1.1`
-- **Dashboard URL:** `http://10.130.1.1/mx921/`
-- **Wi-Fi Access:** Connect to open SSID `duinotech-18094a`
-- **Ethernet Access:** Plug into the Duinotech **LAN** port (DHCP gives client `10.130.1.x`)
-- **SSH Access:** `ssh root@10.130.1.1` (Password: `duinotech` / passwordless RSA key)
-
----
-
-## 7. Phased Implementation Roadmap
-
-- [x] **Phase 1: RF Bench Prep & Basic LoRa Link (Small Bench Antennas)** — *COMPLETE & VERIFIED ON HARDWARE*
-- [ ] **Phase 2: MX921 Bench Interface in Mawson Comms Room** — *NEXT UP*
-  - [ ] 2.1 Assemble MAX3232 & optocoupler interface harness.
-  - [ ] 2.2 Implement FreeRTOS `Mx921SerialTask` (RMENU ASCII parser).
-  - [ ] 2.3 Implement `PowerAndHwTask` (sleep & wake state machine, ~1 mA deep sleep).
-- [x] **Phase 3: OpenWrt Gateway Daemon & 4-Tab Web Dashboard** — *COMPLETE & LIVE*
-- [ ] **Phase 4: Progressive Antenna Testing & RF Validation (Mawson Station)**
-- [ ] **Phase 5: Mount Henderson (~13 km) Field Deployment**
+### Hayes-style `+++` AT Commands (on Port 9001)
+- `AT+STATUS?` — Prints current RF metrics, RSSI, SNR, battery, SF, and sleep state.
+- `AT+AWAKE=1` / `AT+AWAKE=0` — Enable/disable 24/7 Stay Awake Maintenance Lock.
+- `AT+SF=9` / `AT+SF=11` — Remotely switch spreading factor (with 60s fallback).
+- `AT+SCHED=HH,DUR` — Update daily wake hour (UTC) and duration (min).
 
 ---
 
-**Australian Antarctic Division — Mawson Station Comms Team**
+## 5. Lightweight Web Control Bar (`http://10.130.1.1/`)
+
+Served directly by `uhttpd` on the OpenWrt gateway:
+- **Node Selector:** Switch between `Node 1: Mount Henderson` and `Node 2: Mount Parsons`.
+- **Live State Badge:** Real-time visual status (`AWAKE - SCHEDULED`, `AWAKE - IDLE HOLD (mm:ss)`, `MAINTENANCE LOCK`, `SLEEPING - NEXT WAKE HH:MM`).
+- **LoRa Link Metrics:** Real-time RSSI (dBm), SNR (dB), and visual signal strength bar.
+- **One-Click Stay Awake Toggle:** Instantly toggle Maintenance Lock ON/OFF.
+- **One-Click SF Switcher:** Switch between `SF9 Normal` and `SF11 Storm Mode`.
+- **Daily Wake Schedule Form:** Adjust wake hour, window duration, and inactivity hold-off.
+- **Live Packet Log:** Rolling table of recent LoRa packets with timestamps and raw hex preview.
+
+---
+
+## 6. Build & Deployment Instructions
+
+### Compile Remote Node Firmware (Heltec WSL V3)
+```bash
+cd node_mx921
+pio run
+# To flash:
+pio run -t upload
+```
+
+### Compile Gateway MCU Firmware (ATmega328P)
+```bash
+cd gateway_mcu
+pio run
+# To flash via Duinotech internal AVR programmer:
+/usr/bin/run-avrdude /root/gateway_mcu.hex
+```
+
+### Deploy OpenWrt Gateway Components
+```bash
+# Copy files to Duinotech XC-4394:
+scp gateway_openwrt/mx921_daemon.py root@10.130.1.1:/root/
+scp gateway_openwrt/mx921_api.py root@10.130.1.1:/www/cgi-bin/
+scp -r gateway_openwrt/www/* root@10.130.1.1:/www/
+ssh root@10.130.1.1 "/etc/init.d/mx921_daemon restart"
+```

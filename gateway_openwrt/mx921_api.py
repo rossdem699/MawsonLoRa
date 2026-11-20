@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Mawson MX921 LoRa Gateway — CGI API Endpoint
-Installed at /www/cgi-bin/mx921_api
-Handles JSON GET / POST requests from the 4-tab web dashboard.
+Mawson MX921 LoRa Gateway — CGI REST API Endpoint
+Location on OpenWrt: /www/cgi-bin/mx921_api
+Serves JSON requests from the lightweight Web Control Bar.
 """
 
 import os
@@ -30,18 +30,21 @@ def get_state():
                 return json.load(f)
         except Exception:
             pass
-    return {"status": "INITIALIZING", "nodes": {}, "packet_log": []}
+    return {
+        "gateway": {"status": "INITIALIZING", "current_sf": 9, "active_target_node": 1},
+        "nodes": {},
+        "packet_log": []
+    }
 
-def queue_command(node_id, cmd_type, params=None):
+def queue_command(action, node_id, params=None):
     cmd_entry = {
         "id": int(time.time() * 1000),
+        "action": action,
         "node_id": int(node_id),
-        "cmd_type": cmd_type,
         "params": params or {},
-        "created_at": time.strftime("%H:%M:%S", time.gmtime()),
-        "status": "QUEUED"
+        "time": time.strftime("%H:%M:%S", time.gmtime())
     }
-    
+
     existing = []
     if os.path.exists(CMD_QUEUE_FILE):
         try:
@@ -49,31 +52,23 @@ def queue_command(node_id, cmd_type, params=None):
                 existing = json.load(f)
         except Exception:
             existing = []
-    
+
     existing.append(cmd_entry)
-    with open(CMD_QUEUE_FILE, 'w') as f:
-        json.dump(existing, f)
-
-    # Also reflect directly in state file command_queue if possible
-    state = get_state()
-    if "command_queue" not in state:
-        state["command_queue"] = []
-    state["command_queue"].append(cmd_entry)
     try:
-        with open(STATE_FILE, 'w') as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+        with open(CMD_QUEUE_FILE, 'w') as f:
+            json.dump(existing, f)
+    except Exception as e:
+        return {"error": "Failed writing cmd queue: %s" % e}
 
-    return cmd_entry
+    return {"success": True, "command": cmd_entry}
 
 def main():
     method = os.environ.get('REQUEST_METHOD', 'GET').upper()
-    
+
     if method == 'GET':
         state = get_state()
         send_response(200, state)
-        
+
     elif method == 'POST':
         try:
             length = int(os.environ.get('CONTENT_LENGTH', 0))
@@ -85,72 +80,32 @@ def main():
         action = req.get('action')
         node_id = req.get('node_id', 1)
 
-        state = get_state()
-        node_str = str(node_id)
-        node = state.get("nodes", {}).get(node_str)
-
         if action == 'set_maintenance_lock':
             enabled = bool(req.get('enabled', False))
-            if node:
-                node["maintenance_lock"] = enabled
-                node["power_state_desc"] = "MAINTENANCE LOCK (STAY AWAKE)" if enabled else "SCHEDULED WINDOW"
-            queue_command(node_id, "SET_MAINTENANCE_LOCK", {"enabled": enabled})
-            with open(STATE_FILE, 'w') as f:
-                json.dump(state, f)
-            send_response(200, {"success": True, "maintenance_lock": enabled})
+            res = queue_command('set_maintenance_lock', node_id, {"enabled": enabled})
+            send_response(200, res)
 
-        elif action == 'set_channel':
-            ch = int(req.get('channel', 1))
-            if node:
-                node["telemetry"]["active_channel"] = ch
-            queue_command(node_id, "SET_CHANNEL", {"channel": ch})
-            with open(STATE_FILE, 'w') as f:
-                json.dump(state, f)
-            send_response(200, {"success": True, "channel": ch})
+        elif action == 'set_sf':
+            sf = int(req.get('sf', 9))
+            if sf not in (9, 11):
+                send_response(400, {"error": "Invalid SF. Must be 9 or 11."})
+            res = queue_command('set_sf', node_id, {"sf": sf})
+            send_response(200, res)
 
-        elif action == 'set_knockdown':
-            knockdown = bool(req.get('knockdown', False))
-            if node:
-                node["repeater_inhibited"] = knockdown
-            queue_command(node_id, "SET_KNOCKDOWN", {"knockdown": knockdown})
-            with open(STATE_FILE, 'w') as f:
-                json.dump(state, f)
-            send_response(200, {"success": True, "knockdown": knockdown})
+        elif action == 'set_schedule':
+            hh = int(req.get('wake_hour_utc', 0))
+            dur = int(req.get('duration_min', 60))
+            hold = int(req.get('holdoff_min', 10))
+            res = queue_command('set_schedule', node_id, {
+                "wake_hour_utc": hh,
+                "duration_min": dur,
+                "holdoff_min": hold
+            })
+            send_response(200, res)
 
-        elif action == 'send_rmenu':
-            cmd_text = str(req.get('cmd', '')).strip()
-            if cmd_text:
-                queue_command(node_id, "RMENU_RAW", {"cmd": cmd_text})
-                # Add to history
-                if "rmenu_history" not in state:
-                    state["rmenu_history"] = []
-                state["rmenu_history"].insert(0, {
-                    "time": time.strftime("%H:%M:%S", time.gmtime()),
-                    "dir": "REQ",
-                    "text": cmd_text
-                })
-                with open(STATE_FILE, 'w') as f:
-                    json.dump(state, f)
-            send_response(200, {"success": True, "queued_cmd": cmd_text})
-
-        elif action == 'force_poll':
-            queue_command(node_id, "FORCE_POLL", {})
-            send_response(200, {"success": True, "message": "Telemetry poll queued for next wake window"})
-
-        elif action == 'configure_schedule':
-            wake_hour = int(req.get('wake_hour_utc', 0))
-            duration = int(req.get('duration_min', 60))
-            holdoff = int(req.get('holdoff_min', 10))
-            if node:
-                node["schedule_config"] = {
-                    "wake_hour_utc": wake_hour,
-                    "duration_min": duration,
-                    "holdoff_min": holdoff
-                }
-            queue_command(node_id, "SET_SCHEDULE", {"wake_hour_utc": wake_hour, "duration_min": duration, "holdoff_min": holdoff})
-            with open(STATE_FILE, 'w') as f:
-                json.dump(state, f)
-            send_response(200, {"success": True, "schedule": node.get("schedule_config") if node else {}})
+        elif action == 'select_node':
+            res = queue_command('select_node', node_id)
+            send_response(200, res)
 
         else:
             send_response(400, {"error": "Unknown action: %s" % action})

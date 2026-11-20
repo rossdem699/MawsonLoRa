@@ -3,91 +3,100 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-// Packet Magic Identifier ("MX")
-#define MX921_PKT_MAGIC_0        0x4D // 'M'
-#define MX921_PKT_MAGIC_1        0x58 // 'X'
-#define MX921_PKT_MAGIC          0x4D58
+// Packet Magic Identifier ("MX" = 0x4D, 0x58)
+#define MX921_PKT_MAGIC_0            0x4D // 'M'
+#define MX921_PKT_MAGIC_1            0x58 // 'X'
+#define MX921_PKT_MAGIC              0x4D58
 
 // Node IDs
-#define NODE_ID_GATEWAY          0x00 // Mawson Base Gateway (XC-4394)
-#define NODE_ID_MT_HENDERSON     0x01 // Node 1: Mt Henderson (~13 km SSE)
-#define NODE_ID_MT_PARSONS       0x02 // Node 2: Mt Parsons
+#define NODE_ID_GATEWAY              0x00 // Mawson Base Gateway (XC-4394)
+#define NODE_ID_MT_HENDERSON         0x01 // Node 1: Mt Henderson (~13 km SSE)
+#define NODE_ID_MT_PARSONS           0x02 // Node 2: Mt Parsons
 
-// Message Types
-typedef enum {
-    MSG_TYPE_PING                = 0x01, // Node periodic wake heartbeat / ping
-    MSG_TYPE_ACK                 = 0x02, // Gateway ACK (with UTC epoch time sync + flags)
-    MSG_TYPE_STATUS_TELEMETRY    = 0x03, // Full telemetry report (RF, alarms, analog RSSI)
-    MSG_TYPE_COMMAND_QUEUE       = 0x04, // Gateway queued command to node
-    MSG_TYPE_RMENU_CMD           = 0x05, // MX921 RMENU command payload
-    MSG_TYPE_RMENU_RESP          = 0x06, // MX921 RMENU response payload
-    MSG_TYPE_ALARM_CRITICAL      = 0x07, // Emergency EXT1 alarm wake broadcast
-    MSG_TYPE_CONFIG_SYNC         = 0x08  // Schedule / Maintenance Lock update
-} mx921_msg_type_t;
+// Packet Types (1 Byte)
+#define PKT_TYPE_DATA                0x01 // Transparent RS-232 serial payload (900Tools / RMENU)
+#define PKT_TYPE_CTRL                0x02 // Gateway control command to node
+#define PKT_TYPE_ACK                 0x03 // Node ACK / status / telemetry sync to gateway
+#define PKT_TYPE_PING                0x04 // Periodic heartbeat / keepalive
 
-// Power & Sleep State Flags (1 Byte Bitfield)
-#define PWR_STATE_SCHEDULED_WINDOW   (1 << 0) // Currently inside scheduled wake window
+// Control Command IDs (Inside PKT_TYPE_CTRL payload)
+#define CMD_SET_SF                   0x10 // Change Spreading Factor (Payload: [TargetSF 1B])
+#define CMD_SET_LOCK                 0x11 // Set/Clear Stay Awake Maintenance Lock (Payload: [Lock 1B: 0/1])
+#define CMD_SET_SCHED                0x12 // Update Schedule (Payload: [Hour 1B][DurationMin 1B][HoldMin 1B])
+#define CMD_REQ_STATUS               0x13 // Request immediate status / telemetry report
+#define CMD_REBOOT_NODE              0x14 // Reboot node (Payload: [DelaySec 1B])
+
+// Power & Sleep State Flags (1 Byte Bitfield in Header Flags)
+#define PWR_STATE_SCHEDULED_WINDOW   (1 << 0) // Currently inside scheduled daily wake window
 #define PWR_STATE_ACTIVITY_HOLD      (1 << 1) // 10-minute activity hold-off active
 #define PWR_STATE_MAINTENANCE_LOCK   (1 << 2) // "Stay Awake" maintenance lock active
-#define PWR_STATE_ALARM_EXT1_WAKE    (1 << 3) // Woken by EXT1 hardware alarm
-#define PWR_STATE_REPEATER_INHIBITED (1 << 4) // Hardware knockdown/inhibit line asserted
-#define PWR_STATE_VEXT_ENABLED       (1 << 5) // Switched 3.3V rail active (MAX3232 ON)
+#define PWR_STATE_VEXT_ENABLED       (1 << 3) // Switched 3.3V rail active (MAX3232 ON)
+#define PWR_STATE_SF_FALLBACK_ACTIVE (1 << 4) // Currently in 60s dead-man SF fallback trial
 
 // Fixed LoRa Radio Parameters (SX1262 <-> SX1276 Interoperable)
 #define LORA_FREQ_DEFAULT_HZ         916800000UL // 916.8 MHz (AU915 ISM)
 #define LORA_BANDWIDTH_KHZ           125.0       // 125 kHz
-#define LORA_SPREADING_FACTOR        10          // SF10
+#define LORA_SF_DEFAULT              9           // SF9 Default (~120ms airtime, <500ms RTT)
+#define LORA_SF_STORM                11          // SF11 Storm Mode (robust long-range in extreme blizzards)
 #define LORA_CODING_RATE             5           // 4/5
 #define LORA_SYNC_WORD               0x12        // Standard LoRa private sync word
 #define LORA_PREAMBLE_LEN            8
-#define LORA_TX_POWER_BENCH_DBM      2           // Initial bench test low power
+#define LORA_TX_POWER_BENCH_DBM      2           // Bench test low power (2 dBm)
 #define LORA_TX_POWER_MAX_DBM        22          // Max PA boost for field deploy
 
-// Maximum payload buffer size (to stay within ATmega328P 2KB SRAM limits)
-#define MX921_MAX_PAYLOAD_LEN        64
+// Maximum payload buffer sizes
+#define MX921_MAX_PAYLOAD_LEN        180
+#define MX921_MAX_FRAME_LEN          (sizeof(mx921_header_t) + MX921_MAX_PAYLOAD_LEN + sizeof(uint16_t))
+
+// Dead-Man Fallback Timeout
+#define SF_FALLBACK_TIMEOUT_MS       60000UL     // 60 seconds fallback timeout
+#define ACTIVITY_WATCHDOG_MS         600000UL    // 10 minutes (600s) activity holdoff
+
+// Shared Secret Key for Control Authentication (8 bytes)
+#define MX921_SHARED_SECRET          "MWS921LK"
 
 // Packet Header (7 Bytes)
-// [Magic 2B][NodeID 1B][MsgType 1B][Seq 2B][PowerState 1B]
+// [Magic 2B][NodeID 1B][Type 1B][Seq 2B][Flags 1B]
 #pragma pack(push, 1)
 typedef struct {
     uint8_t  magic[2];    // 'M', 'X' (0x4D, 0x58)
-    uint8_t  node_id;     // Source / Dest node ID
-    uint8_t  msg_type;    // mx921_msg_type_t
+    uint8_t  node_id;     // Source (if node) or Dest (if gateway) Node ID
+    uint8_t  pkt_type;    // PKT_TYPE_DATA, PKT_TYPE_CTRL, PKT_TYPE_ACK, PKT_TYPE_PING
     uint16_t seq;         // Sequence counter
-    uint8_t  power_state; // Bitmask of PWR_STATE_*
+    uint8_t  flags;       // Bitmask of PWR_STATE_*
 } mx921_header_t;
 
-// Standard Gateway ACK Payload
+// Control Packet Payload Format (Header + Payload <= 180B + CRC16 2B)
 typedef struct {
-    uint32_t epoch_utc;        // NTP synchronized UTC epoch from OpenWrt
-    uint16_t wake_window_sec;  // Remaining scheduled wake window or config
-    uint8_t  pending_cmds;     // Number of queued commands waiting for node
-    uint8_t  flags;            // Bit 0: Set Stay Awake Lock, Bit 1: Force Poll
-} mx921_ack_payload_t;
+    uint8_t  cmd_id;           // CMD_SET_SF, CMD_SET_LOCK, etc.
+    uint8_t  param1;           // e.g. target_sf or lock_val or wake_hour
+    uint8_t  param2;           // e.g. duration_min
+    uint8_t  param3;           // e.g. hold_min
+    uint32_t epoch_utc;        // Current gateway UTC epoch timestamp
+    uint8_t  auth_tag[4];      // 4-byte HMAC / keyed auth tag
+} mx921_ctrl_payload_t;
 
-// Periodic Heartbeat / Ping Payload
+// Standard ACK / Telemetry Payload Format
 typedef struct {
-    uint16_t vbat_mv;          // Battery / supply voltage in mV
+    uint8_t  cmd_ack;          // Command ID being acknowledged (or 0 for periodic ping)
+    uint8_t  status_code;      // 0 = OK, non-zero = error
+    uint8_t  current_sf;       // Current active SF (9 or 11)
+    uint8_t  flags;            // Node state flags (PWR_STATE_*)
+    uint16_t holdoff_rem_sec;  // Remaining seconds on 10-minute activity hold-off
+    uint16_t vbat_mv;          // Battery / supply voltage in mV (5000 on bench)
     int16_t  temp_c_x10;       // Temperature in 0.1 deg C
-    uint16_t rx_rssi_raw;      // Raw 12-bit ADC reading from MX921 CN3 RSSI divider
-    uint8_t  alarm_flags;      // Bit 0: Alarm1, Bit 1: Alarm2, Bit 2: COR/Mute
-    uint8_t  active_channel;   // Active MX921 channel number (1-99)
-} mx921_ping_payload_t;
-
-// Packet Trailer (6 Bytes: 4B Truncated HMAC + 2B CRC16)
-typedef struct {
-    uint8_t  auth_tag[4]; // Truncated HMAC-SHA256 (or keyed lightweight hash)
-    uint16_t crc16;       // CCITT CRC-16 over Header + Payload + AuthTag
-} mx921_trailer_t;
+    uint32_t epoch_utc;        // Last synchronized node epoch
+} mx921_ack_payload_t;
 #pragma pack(pop)
 
-// CRC-16 (CCITT: polynomial 0x1021, init 0xFFFF) calculation
-static inline uint16_t mx921_crc16_ccitt(const uint8_t *data, size_t length) {
+// CCITT CRC-16 (Polynomial 0x1021, init 0xFFFF)
+static inline uint16_t mx921_crc16(const uint8_t *data, size_t length) {
     uint16_t crc = 0xFFFF;
     for (size_t i = 0; i < length; i++) {
         crc ^= (uint16_t)data[i] << 8;
@@ -100,6 +109,28 @@ static inline uint16_t mx921_crc16_ccitt(const uint8_t *data, size_t length) {
         }
     }
     return crc;
+}
+
+// 4-byte keyed HMAC / auth tag calculation (FNV-1a 32-bit keyed hash)
+// Computes a deterministic, lightweight 4-byte auth tag over data using a shared secret
+static inline uint32_t mx921_calc_auth_tag(const uint8_t *data, size_t length, const char *secret) {
+    uint32_t hash = 2166136261UL; // FNV-1a 32-bit offset basis
+    
+    // Mix in secret first
+    if (secret) {
+        while (*secret) {
+            hash ^= (uint8_t)(*secret++);
+            hash *= 16777619UL;
+        }
+    }
+    
+    // Mix in data
+    for (size_t i = 0; i < length; i++) {
+        hash ^= data[i];
+        hash *= 16777619UL;
+    }
+    
+    return hash;
 }
 
 #ifdef __cplusplus
