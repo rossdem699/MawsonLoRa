@@ -539,11 +539,11 @@ class Mx921GatewayDaemon(object):
             if line.upper().startswith("AT") or line == "+++":
                 self.handle_at_command(client, line)
             elif line:
-                # Normal transparent line with newline
-                self.send_data_packet((line + "\r\n").encode('ascii'))
+                # Normal transparent line - Spectra MX921 RS-232 expects CR (\r) delimiter
+                self.send_data_packet((line + "\r").encode('ascii'))
             else:
-                # User pressed Enter alone in terminal
-                self.send_data_packet(b"\r\n")
+                # User pressed Enter alone in terminal - send single CR
+                self.send_data_packet(b"\r")
 
         # Any remaining non-newline transparent serial bytes buffered for idle-flush
         self.tcp_rx_buffers[client] = buf
