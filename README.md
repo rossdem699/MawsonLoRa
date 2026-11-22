@@ -22,7 +22,7 @@ Provides:
   └─ Front RJ45 MIC Port (Pin 4 RXD, Pin 5 TXD, Pin 7 GND @ 57,600 baud)
        │
 [MAX3232 3.3V Transceiver] (Powered via switched Vext GPIO 36)
-       │ (UART1 TX=17, RX=18)
+       │ (UART1 TX=48, RX=47)
 [Heltec Wireless Stick Lite V3] (ESP32-S3FN8 + SX1262 @ 916.8 MHz)
        │
        ▼ (915 MHz LoRa Link: SF9 Normal / SF11 Storm, 125 kHz BW, CR 4/5)
@@ -47,7 +47,7 @@ Provides:
 - **Microcontroller:** Heltec Wireless Stick Lite V3 (`HTIT-WB32LAF`, ESP32-S3FN8).
 - **LoRa Transceiver:** Semtech SX1262 (Internal SPI: `NSS=8`, `SCK=9`, `MOSI=10`, `MISO=11`, `RST=12`, `BUSY=13`, `DIO1=14`).
 - **Power Rail Switching:** `Vext` (`GPIO 36`, active LOW) powers the MAX3232 during wake windows and cuts it completely during deep sleep.
-- **External Serial:** `UART1` (`TX=GPIO 17`, `RX=GPIO 18`) at `57600 baud` (8-N-1).
+- **External Serial:** `UART1` (`TX=GPIO 48`, `RX=GPIO 47`) at `57600 baud` (8-N-1). Uses accessible through-hole header pins 48 & 47.
 - **Repeater Front RJ45 MIC Pinout (Strictly 3-Wire Interface):**
   - `RJ45 Pin 4` (MX921 `RXD`) $\leftrightarrow$ MAX3232 `T1OUT`
   - `RJ45 Pin 5` (MX921 `TXD`) $\leftrightarrow$ MAX3232 `R1IN`

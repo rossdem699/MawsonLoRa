@@ -20,7 +20,7 @@
 - **Must Have:**
   1. **Heltec Wireless Stick Lite V3 FreeRTOS Firmware (`node_mx921/`):**
      - **Pinout (Fixed Heltec WSL V3 Internal SPI):** SX1262 `NSS=8`, `SCK=9`, `MOSI=10`, `MISO=11`, `RST=12`, `BUSY=13`, `DIO1=14`; `Vext_Ctrl=36` (LOW = ON, HIGH = OFF before sleep); User LED=`35`.
-     - **External UART Pinout:** `UART1` (`TX=17`, `RX=18`) -> MAX3232 `T1IN` / `R1OUT` (`57600 baud` default, configurable in NVS).
+     - **External UART Pinout:** `UART1` (`TX=48`, `RX=47`) -> MAX3232 `T1IN` / `R1OUT` (`57600 baud` default, configurable in NVS). Uses accessible through-hole header pins 48 & 47.
      - **FreeRTOS Dual-Core Task Architecture:**
        - `RadioTask` (Core 0): Manages SX1262 via `RadioLib`, handles `DIO1` packet RX interrupts, validates CRC-16 + 4-byte HMAC/shared-secret auth tags on control packets, manages SF switching and dead-man fallback, and sends coalesced serial frames.
        - `UartBridgeTask` (Core 1): Reads/writes `UART1` (`57600 baud`) with `15 ms` idle-gap packet coalescing (or `180-byte` max payload flush) so `900Tools` requests and `RMENU` screens transmit cleanly without byte fragmentation.

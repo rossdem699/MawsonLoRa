@@ -5,7 +5,7 @@
  * Hardware:
  *   - Heltec Wireless Stick Lite V3 (ESP32-S3FN8 + SX1262, 863-928 MHz HF)
  *   - Switched Vext (GPIO 36, active LOW) -> MAX3232 3.3V RS-232 transceiver
- *   - UART1 (TX=GPIO 17, RX=GPIO 18) -> MAX3232 -> MX921 Front RJ45 MIC port (57600 baud, 8-N-1)
+ *   - UART1 (TX=GPIO 48, RX=GPIO 47) -> MAX3232 -> MX921 Front RJ45 MIC port (57600 baud, 8-N-1)
  *
  * Architecture:
  *   - FreeRTOS Dual-Core Design:
@@ -36,8 +36,9 @@
 #define PIN_USER_LED       35  // Active HIGH LED
 
 // External UART1 connected to MAX3232 -> MX921 Front RJ45 MIC Port
-#define PIN_UART1_TX       17
-#define PIN_UART1_RX       18
+// Using through-hole header pins GPIO 48 (TX) and GPIO 47 (RX)
+#define PIN_UART1_TX       48
+#define PIN_UART1_RX       47
 
 // Node Identity
 #define THIS_NODE_ID       NODE_ID_MT_HENDERSON
