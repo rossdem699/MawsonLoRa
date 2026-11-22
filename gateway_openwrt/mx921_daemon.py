@@ -522,18 +522,28 @@ class Mx921GatewayDaemon(object):
         # Check if client is issuing Hayes AT commands
         # An AT command starts with AT or at followed by + or \r or \n
         while b'\n' in buf or b'\r' in buf:
-            # Look for line
-            idx_r = buf.find(b'\r')
-            idx_n = buf.find(b'\n')
-            idx = idx_r if (idx_r != -1 and (idx_n == -1 or idx_r < idx_n)) else idx_n
-            line = buf[:idx].decode('ascii', errors='replace').strip()
-            buf = buf[idx + 1:]
+            # Handle \r\n or \n or \r
+            if b'\r\n' in buf:
+                idx = buf.find(b'\r\n')
+                line = buf[:idx].decode('ascii', errors='replace').strip()
+                buf = buf[idx + 2:]
+            elif b'\n' in buf:
+                idx = buf.find(b'\n')
+                line = buf[:idx].decode('ascii', errors='replace').strip()
+                buf = buf[idx + 1:]
+            else:
+                idx = buf.find(b'\r')
+                line = buf[:idx].decode('ascii', errors='replace').strip()
+                buf = buf[idx + 1:]
 
             if line.upper().startswith("AT") or line == "+++":
                 self.handle_at_command(client, line)
             elif line:
                 # Normal transparent line with newline
                 self.send_data_packet((line + "\r\n").encode('ascii'))
+            else:
+                # User pressed Enter alone in terminal
+                self.send_data_packet(b"\r\n")
 
         # Any remaining non-newline transparent serial bytes buffered for idle-flush
         self.tcp_rx_buffers[client] = buf

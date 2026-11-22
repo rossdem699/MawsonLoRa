@@ -21,6 +21,7 @@
 #include <Preferences.h>
 #include <sys/time.h>
 #include <esp_sleep.h>
+#include "driver/uart.h"
 #include "mx921_packet.h"
 
 // Heltec Wireless Stick Lite V3 Hardware Pinout
@@ -197,7 +198,9 @@ void sendAckPacket(uint8_t cmd_ack, uint8_t status_code, uint8_t target_sf) {
     digitalWrite(PIN_USER_LED, HIGH);
     radio.transmit(tx_buf, payload_and_header_len + 2);
     digitalWrite(PIN_USER_LED, LOW);
+    radio.finishTransmit();
     radio.startReceive();
+    ulTaskNotifyTake(pdTRUE, 0); // Discard TX_DONE notification
 }
 
 // Configure SX1262 Spreading Factor
@@ -255,41 +258,43 @@ void RadioTask(void *pvParameters) {
         uint32_t ulNotificationValue = ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(20));
 
         if (ulNotificationValue > 0) {
-            // Packet received via DIO1
-            size_t rx_len = radio.getPacketLength();
-            if (rx_len >= (sizeof(mx921_header_t) + sizeof(uint16_t)) && rx_len <= MX921_MAX_FRAME_LEN) {
-                uint8_t rx_buf[MX921_MAX_FRAME_LEN];
-                int read_state = radio.readData(rx_buf, rx_len);
-                if (read_state == RADIOLIB_ERR_NONE) {
-                    // Check CRC16
-                    size_t data_len = rx_len - 2;
-                    uint16_t received_crc = rx_buf[data_len] | ((uint16_t)rx_buf[data_len + 1] << 8);
-                    uint16_t calculated_crc = mx921_crc16(rx_buf, data_len);
+            uint16_t irq = radio.getIrqStatus();
+            if (irq & RADIOLIB_SX126X_IRQ_RX_DONE) {
+                // Packet received via DIO1
+                size_t rx_len = radio.getPacketLength();
+                if (rx_len >= (sizeof(mx921_header_t) + sizeof(uint16_t)) && rx_len <= MX921_MAX_FRAME_LEN) {
+                    uint8_t rx_buf[MX921_MAX_FRAME_LEN];
+                    int read_state = radio.readData(rx_buf, rx_len);
+                    if (read_state == RADIOLIB_ERR_NONE) {
+                        // Check CRC16
+                        size_t data_len = rx_len - 2;
+                        uint16_t received_crc = rx_buf[data_len] | ((uint16_t)rx_buf[data_len + 1] << 8);
+                        uint16_t calculated_crc = mx921_crc16(rx_buf, data_len);
 
-                    if (received_crc == calculated_crc) {
-                        mx921_header_t *hdr = (mx921_header_t *)rx_buf;
-                        if (hdr->magic[0] == MX921_PKT_MAGIC_0 && hdr->magic[1] == MX921_PKT_MAGIC_1) {
-                            // Check if destination is for this node or broadcast
-                            if (hdr->node_id == THIS_NODE_ID || hdr->node_id == 0xFF) {
-                                // Valid packet received -> reset activity watchdog!
-                                g_last_activity_ms = millis();
-                                
-                                // If fallback trial was active and packet arrived on target SF, clear fallback!
-                                if (g_sf_fallback_active) {
-                                    Serial.println("[RadioTask] Valid packet received on new SF! Fallback cancelled.");
-                                    g_sf_fallback_active = false;
-                                }
-
-                                size_t payload_len = data_len - sizeof(mx921_header_t);
-                                uint8_t *payload = rx_buf + sizeof(mx921_header_t);
-
-                                if (hdr->pkt_type == PKT_TYPE_DATA) {
-                                    // Transparent RS-232 serial data from Gateway -> output immediately to UART1!
-                                    if (payload_len > 0) {
-                                        Serial1.write(payload, payload_len);
-                                        Serial1.flush();
+                        if (received_crc == calculated_crc) {
+                            mx921_header_t *hdr = (mx921_header_t *)rx_buf;
+                            if (hdr->magic[0] == MX921_PKT_MAGIC_0 && hdr->magic[1] == MX921_PKT_MAGIC_1) {
+                                // Check if destination is for this node or broadcast
+                                if (hdr->node_id == THIS_NODE_ID || hdr->node_id == 0xFF) {
+                                    // Valid packet received -> reset activity watchdog!
+                                    g_last_activity_ms = millis();
+                                    
+                                    // If fallback trial was active and packet arrived on target SF, clear fallback!
+                                    if (g_sf_fallback_active) {
+                                        Serial.println("[RadioTask] Valid packet received on new SF! Fallback cancelled.");
+                                        g_sf_fallback_active = false;
                                     }
-                                } else if (hdr->pkt_type == PKT_TYPE_CTRL) {
+
+                                    size_t payload_len = data_len - sizeof(mx921_header_t);
+                                    uint8_t *payload = rx_buf + sizeof(mx921_header_t);
+
+                                    if (hdr->pkt_type == PKT_TYPE_DATA) {
+                                        // Transparent RS-232 serial data from Gateway -> output immediately to UART1!
+                                        if (payload_len > 0) {
+                                            Serial.printf("[RadioTask] RX DATA (%u bytes) -> Forwarding to MX921 UART1\n", (unsigned)payload_len);
+                                            uart_write_bytes(UART_NUM_1, (const char *)payload, payload_len);
+                                        }
+                                    } else if (hdr->pkt_type == PKT_TYPE_CTRL) {
                                     // Gateway control packet
                                     if (payload_len >= sizeof(mx921_ctrl_payload_t)) {
                                         mx921_ctrl_payload_t *ctrl = (mx921_ctrl_payload_t *)payload;
@@ -342,11 +347,17 @@ void RadioTask(void *pvParameters) {
                             }
                         }
                     } else {
-                        Serial.println("[RadioTask] CRC-16 Check Failed!");
+                        Serial.printf("[RadioTask] CRC-16 Check Failed! rx_len=%u, received=0x%04X, calculated=0x%04X\n", (unsigned)rx_len, received_crc, calculated_crc);
+                        Serial.print("[RadioTask] Raw bytes: ");
+                        for (size_t b = 0; b < rx_len; b++) {
+                            Serial.printf("%02X", rx_buf[b]);
+                        }
+                        Serial.println();
                     }
                 }
             }
             radio.startReceive();
+        }
         }
 
         // Dead-Man Fallback Check (60s timer)
@@ -376,10 +387,16 @@ void RadioTask(void *pvParameters) {
             tx_buf[data_len] = (uint8_t)(crc & 0xFF);
             tx_buf[data_len + 1] = (uint8_t)((crc >> 8) & 0xFF);
 
+            Serial.printf("[RadioTask] Transmitting DATA (%u bytes payload, total %u bytes)...\n",
+                          tx_frame.len, (unsigned)(data_len + 2));
+
             digitalWrite(PIN_USER_LED, HIGH);
-            radio.transmit(tx_buf, data_len + 2);
+            int tx_res = radio.transmit(tx_buf, data_len + 2);
             digitalWrite(PIN_USER_LED, LOW);
+            Serial.printf("[RadioTask] Transmit finished, code: %d\n", tx_res);
+            radio.finishTransmit();
             radio.startReceive();
+            ulTaskNotifyTake(pdTRUE, 0); // Discard TX_DONE notification
             g_last_activity_ms = millis();
         }
 
@@ -395,43 +412,24 @@ void RadioTask(void *pvParameters) {
 /* Core 1: UartBridgeTask                                                    */
 /* ========================================================================= */
 void UartBridgeTask(void *pvParameters) {
-    Serial.println("[UartBridgeTask] Initializing on Core 1 (57600 baud)...");
-    Serial1.begin(57600, SERIAL_8N1, PIN_UART1_RX, PIN_UART1_TX);
-
+    Serial.println("[UartBridgeTask] Running on Core 1 with native ESP-IDF UART1...");
     uint8_t buffer[MX921_MAX_PAYLOAD_LEN];
-    uint8_t buf_idx = 0;
-    uint32_t last_byte_time_ms = 0;
-    const uint32_t IDLE_GAP_MS = 15; // 15 ms idle-gap packet coalescing
 
     while (1) {
-        while (Serial1.available()) {
-            int c = Serial1.read();
-            if (c >= 0) {
-                buffer[buf_idx++] = (uint8_t)c;
-                last_byte_time_ms = millis();
-                g_last_activity_ms = last_byte_time_ms;
-
-                // Max payload reached -> flush immediately
-                if (buf_idx >= MX921_MAX_PAYLOAD_LEN) {
-                    serial_frame_t frame;
-                    frame.len = buf_idx;
-                    memcpy(frame.data, buffer, buf_idx);
-                    xQueueSend(xSerialTxQueue, &frame, pdMS_TO_TICKS(50));
-                    buf_idx = 0;
-                }
+        int len = uart_read_bytes(UART_NUM_1, buffer, sizeof(buffer), pdMS_TO_TICKS(15));
+        if (len > 0) {
+            Serial.printf("[UartBridgeTask] RX from UART1 (%d bytes): ", len);
+            for (int i = 0; i < len; i++) {
+                Serial.printf("%c", (buffer[i] >= 32 && buffer[i] <= 126) ? (char)buffer[i] : '.');
             }
-        }
+            Serial.println();
 
-        // Check 15ms idle-gap flush
-        if (buf_idx > 0 && (millis() - last_byte_time_ms) >= IDLE_GAP_MS) {
             serial_frame_t frame;
-            frame.len = buf_idx;
-            memcpy(frame.data, buffer, buf_idx);
+            frame.len = len;
+            memcpy(frame.data, buffer, len);
             xQueueSend(xSerialTxQueue, &frame, pdMS_TO_TICKS(50));
-            buf_idx = 0;
+            g_last_activity_ms = millis();
         }
-
-        vTaskDelay(pdMS_TO_TICKS(2));
     }
 }
 
@@ -522,6 +520,21 @@ void setup() {
 
     loadConfig();
     g_last_activity_ms = millis();
+
+    // Initialize native ESP-IDF UART1 on GPIO 48 (TX) and GPIO 47 (RX)
+    uart_config_t uart_config = {
+        .baud_rate = 57600,
+        .data_bits = UART_DATA_8_BITS,
+        .parity = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+        .rx_flow_ctrl_thresh = 122,
+        .source_clk = UART_SCLK_DEFAULT,
+    };
+    uart_driver_install(UART_NUM_1, 1024, 1024, 0, NULL, 0);
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1, PIN_UART1_TX, PIN_UART1_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    Serial.printf("[Setup] Initialized native ESP-IDF UART1 (TX=%d, RX=%d) at 57600 baud\n", PIN_UART1_TX, PIN_UART1_RX);
 
     xSerialTxQueue = xQueueCreate(SERIAL_TX_QUEUE_LEN, sizeof(serial_frame_t));
 
