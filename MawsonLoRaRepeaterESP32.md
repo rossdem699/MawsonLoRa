@@ -1,6 +1,12 @@
-# SPEC.md — Mawson MX921 Repeater LoRa Telemetry & Remote Programming Bridge
+# Mawson MX921 Repeater LoRa Telemetry Bridge (Historical Concept Archive)
 
-## Build Spec
+> [!NOTE]
+> **SUPERSEDED SPECIFICATION ARCHIVE:**  
+> This document represents the initial exploratory concept from mid-November 2026 (proposing parallel DB25 alarm optos, analog RSSI dividers, and a 4-tab UI).  
+> **For the active, verified production design, please refer to [`SPEC.md`](./SPEC.md), [`README.md`](./README.md), and [`WORKFLOW.md`](./WORKFLOW.md).**  
+> The current system operates as a transparent bidirectional RS-232-over-LoRa bridge connected directly to the MX921 front RJ45 `MIC` port (Pins 5, 7, 8).
+
+## Build Spec (Archived)
 
 - **Goal:** Build a bidirectional 915 MHz LoRa telemetry, alarm, and full remote-programming bridge between a Spectra Engineering MX921 repeater (Phase 1: Mount Henderson, extensible to Mount Parsons) and a tabbed local web dashboard hosted on a Duinotech XC-4394 OpenWrt LoRa gateway at Mawson Station, featuring intelligent deep-sleep scheduling with activity hold-off and web-controlled maintenance lock.
 
