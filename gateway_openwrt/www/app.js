@@ -445,6 +445,22 @@
 
   async function executeCustomCmd(cmdStr) {
     if (!cmdStr) return;
+    const clean = cmdStr.trim().toUpperCase();
+
+    // Smart routing: prevent 30s timeout failures for common menu letters
+    if (clean === 'C' || clean === 'CONFIG') {
+      return executeAutoQuery('config', {}, 'Configuration Menu');
+    }
+    if (clean === 'E' || clean === 'CHANNEL' || clean === 'CH1') {
+      return executeAutoQuery('channel', { channel: 1 }, 'Channel 1');
+    }
+    if (clean === 'A' || clean === 'ALIGN') {
+      return executeAutoQuery('alignment', {}, 'Alignment Menu');
+    }
+    if (clean === 'RMENU' || clean === 'MENU') {
+      return executeAutoQuery('identity', {}, 'Main Menu');
+    }
+
     setMxStatus('busy', 'Transmitting command [' + cmdStr + '] over LoRa (916.8 MHz)...');
     appendTerminal('TX ➔', cmdStr);
 
