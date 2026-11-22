@@ -1034,3 +1034,224 @@ progress.mx-progress-bar:indeterminate {
 .btn-cmd-send:hover {
   background-color: rgba(0, 229, 255, 0.4);
 }
+
+/* ========================================================================= */
+/* Comprehensive Mobile & Touch Optimizations (Phones & Tablets)             */
+/* ========================================================================= */
+@media (max-width: 768px) {
+  /* Layout & Padding */
+  .main-content {
+    padding: 10px;
+    gap: 12px;
+  }
+
+  .card-body {
+    padding: 12px;
+  }
+
+  .card-header {
+    padding: 10px 12px;
+  }
+
+  .card-header.flex-between {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  /* Header adjustments */
+  .app-header {
+    padding: 12px 14px;
+    gap: 10px;
+  }
+
+  .app-title {
+    font-size: 17px;
+  }
+
+  .app-subtitle {
+    font-size: 11px;
+  }
+
+  .header-right {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .status-pill {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .tcp-port-badge {
+    padding: 3px 8px;
+  }
+
+  /* Primary Control Bar */
+  .control-bar-card {
+    padding: 12px;
+  }
+
+  .bar-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  .btn-toggle {
+    min-height: 48px;
+    font-size: 13px;
+  }
+
+  .btn-sf {
+    min-height: 46px;
+    font-size: 13px;
+  }
+
+  /* MX921 Action Bar: 2-column touch tiles */
+  .mx-action-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .btn-mx {
+    min-height: 48px;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 12px;
+    text-align: center;
+  }
+
+  /* Data Grid */
+  .mx-data-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .channel-details-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .ch-val {
+    font-size: 13px;
+  }
+
+  /* Terminal Header & Tools */
+  .mx-terminal-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .term-tools {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+  }
+
+  .btn-xs {
+    min-height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .mx-terminal-display {
+    min-height: 150px;
+    max-height: 220px;
+    font-size: 11px;
+    padding: 10px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Command input bar */
+  .mx-command-bar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .mx-cmd-input {
+    font-size: 16px; /* Prevents iOS auto-zoom on input focus */
+    min-height: 46px;
+    padding: 8px 10px;
+  }
+
+  .btn-cmd-send {
+    min-height: 46px;
+    padding: 8px 18px;
+    font-size: 14px;
+  }
+
+  /* Telemetry Grid */
+  .telem-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .telem-item {
+    padding: 10px;
+  }
+
+  .telem-val {
+    font-size: 15px;
+  }
+
+  /* VCOM Grid */
+  .vcom-grid {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+
+  /* Schedule form */
+  .schedule-form .form-row {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .btn-action {
+    min-height: 46px;
+    width: 100%;
+  }
+
+  /* Packet table: Hide raw hex column on mobile to save horizontal space */
+  .packet-table th:last-child,
+  .packet-table td:last-child {
+    display: none;
+  }
+
+  .table-responsive {
+    max-height: 220px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-footer {
+    padding: 12px 14px;
+    font-size: 10px;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 440px) {
+  .mx-action-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .channel-details-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .telem-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .status-pill {
+    font-size: 10px;
+  }
+}
