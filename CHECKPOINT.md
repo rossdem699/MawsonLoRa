@@ -32,14 +32,26 @@
 
 ---
 
-## 3. MX921 Front RJ45 MIC Socket Wiring Reference
+## 3. MX921 Front RJ45 MIC Socket Wiring Reference (VERIFIED)
 
-Strictly 3-wire RS-232 interface at 57,600 baud, 8-N-1:
+Official Spectra Engineering MX921 Technical Manual pinout (T568B wire colours):
 ```text
-RJ45 Pin 4 (MX921 RXD) <---> MAX3232 T1OUT
-RJ45 Pin 5 (MX921 TXD) <---> MAX3232 R1IN
-RJ45 Pin 7 (GND)       <---> MAX3232 GND
+RJ45 Pin 5 (GND)       <---> MAX232 Pin 15 (GND)    [White/Blue stripe]
+RJ45 Pin 7 (Radio TXD) <---> MAX232 Pin 13 (R1IN)   [Solid Brown]
+RJ45 Pin 8 (Radio RXD) <---> MAX232 Pin 14 (T1OUT)  [White/Brown stripe]
 
-Pins 1, 2, 3, 6, 8 are left completely disconnected (isolates +12V mic bias, PTT, audio lines).
-MAX3232 VCC/GND is powered via Heltec WSL V3 switched Vext (GPIO 36, active LOW) and GND.
+Pins 1, 2, 3, 4, 6 are completely disconnected and isolated (protects against +8V mic bias, PTT, audio).
+Heltec WSL V3: GPIO 48 (TX) -> MAX232 Pin 11 (T1IN); GPIO 47 (RX) <- 10k resistor <- MAX232 Pin 12 (R1OUT).
 ```
+
+---
+
+## 4. Hardware Bench Verification Summary (22 Nov 2026)
+
+- **RF Link:** 916.8 MHz LoRa link fully active between Gateway (SX1276) and Heltec WSL V3 (SX1262). RSSI -61 dBm, SNR +9 to +14 dB at SF9.
+- **Electrical Verification:** MAX232 voltage rails (+9.4V V+, -8.6V V-, -8.42V T1OUT) and physical loopback (Pins 7 & 8) confirmed with multimeter.
+- **Live Repeater Interrogation:** Connected directly to MX921 front MIC socket at 57,600 baud, 8-N-1. Command `RMENU` transmitted over LoRa, successfully returned:
+  - **Repeater Model:** `MX921D3D3H`
+  - **Serial Number:** `91D300004`
+  - **Firmware Version:** `0.2.22`
+  - Interactive menus (`Configuration Menu`, `Channel Edit Menu`, `Alignment Menu`) fully responsive over LoRa!
