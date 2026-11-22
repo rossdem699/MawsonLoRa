@@ -306,6 +306,243 @@
     }, 4000);
   });
 
+  // =========================================================================
+  // Spectra MX921 Interactive Diagnostics & Control Hub Handlers
+  // =========================================================================
+  const elMxStatusPill = document.getElementById('mxStatusPill');
+  const elMxProgressBarContainer = document.getElementById('mxProgressBarContainer');
+  const elMxProgressText = document.getElementById('mxProgressText');
+  const elMxProgressTimer = document.getElementById('mxProgressTimer');
+  const elMxProgressBar = document.getElementById('mxProgressBar');
+
+  const elBtnMxIdentity = document.getElementById('btnMxIdentity');
+  const elBtnMxChannel1 = document.getElementById('btnMxChannel1');
+  const elBtnMxConfig = document.getElementById('btnMxConfig');
+  const elBtnMxAlignment = document.getElementById('btnMxAlignment');
+  const elBtnMxResetMenu = document.getElementById('btnMxResetMenu');
+
+  const elLblMxModel = document.getElementById('lblMxModel');
+  const elLblMxSerial = document.getElementById('lblMxSerial');
+  const elLblMxVersion = document.getElementById('lblMxVersion');
+
+  const elLblTxFreq = document.getElementById('lblTxFreq');
+  const elLblRxFreq = document.getElementById('lblRxFreq');
+  const elLblTxCtcss = document.getElementById('lblTxCtcss');
+  const elLblRxCtcss = document.getElementById('lblRxCtcss');
+  const elLblTxPower = document.getElementById('lblTxPower');
+  const elLblDuplexBw = document.getElementById('lblDuplexBw');
+
+  const elTxtTerminalOut = document.getElementById('txtTerminalOut');
+  const elInpMxCustomCmd = document.getElementById('inpMxCustomCmd');
+  const elBtnSendCustomCmd = document.getElementById('btnSendCustomCmd');
+
+  const elBtnSendEsc = document.getElementById('btnSendEsc');
+  const elBtnSendEnter = document.getElementById('btnSendEnter');
+  const elBtnClearTerm = document.getElementById('btnClearTerm');
+
+  let timerInterval = null;
+  let timerStart = 0;
+
+  function setMxStatus(state, msg, timerText) {
+    if (!elMxStatusPill) return;
+    elMxStatusPill.className = 'mx-status-pill';
+    if (state === 'busy') {
+      elMxStatusPill.classList.add('status-busy');
+      elMxStatusPill.textContent = '🟡 Transmitting...';
+    } else if (state === 'waiting') {
+      elMxStatusPill.classList.add('status-waiting');
+      elMxStatusPill.textContent = '🔵 Waiting Reply...';
+    } else if (state === 'ready') {
+      elMxStatusPill.classList.add('status-ready');
+      elMxStatusPill.textContent = '🟢 Ready';
+    } else if (state === 'error') {
+      elMxStatusPill.classList.add('status-error');
+      elMxStatusPill.textContent = '🔴 ' + (msg || 'Error');
+    }
+
+    if (elMxProgressBarContainer) {
+      if (state === 'busy' || state === 'waiting') {
+        elMxProgressBarContainer.style.display = 'block';
+        elMxProgressText.textContent = msg;
+        if (!timerInterval) {
+          timerStart = Date.now();
+          timerInterval = setInterval(function () {
+            const ms = Date.now() - timerStart;
+            elMxProgressTimer.textContent = ms + ' ms';
+          }, 50);
+        }
+      } else {
+        if (timerInterval) {
+          clearInterval(timerInterval);
+          timerInterval = null;
+        }
+        if (state === 'ready') {
+          elMxProgressText.textContent = msg || 'Done';
+          if (timerText) elMxProgressTimer.textContent = timerText;
+          setTimeout(function () {
+            if (!timerInterval) elMxProgressBarContainer.style.display = 'none';
+          }, 3500);
+        } else {
+          elMxProgressBarContainer.style.display = 'none';
+        }
+      }
+    }
+  }
+
+  function appendTerminal(prefix, text) {
+    if (!elTxtTerminalOut) return;
+    const timeStr = new Date().toTimeString().split(' ')[0];
+    const line = '\n[' + timeStr + '] ' + (prefix ? prefix + ' ' : '') + text;
+    elTxtTerminalOut.textContent += line;
+    elTxtTerminalOut.scrollTop = elTxtTerminalOut.scrollHeight;
+  }
+
+  function applyParsedData(parsed) {
+    if (!parsed) return;
+    if (parsed.model_number && elLblMxModel) elLblMxModel.textContent = parsed.model_number;
+    if (parsed.serial_number && elLblMxSerial) elLblMxSerial.textContent = parsed.serial_number;
+    if (parsed.firmware_version && elLblMxVersion) elLblMxVersion.textContent = 'v' + parsed.firmware_version;
+
+    if (parsed.tx_freq_mhz && elLblTxFreq) elLblTxFreq.innerHTML = parsed.tx_freq_mhz + ' <small>MHz</small>';
+    if (parsed.rx_freq_mhz && elLblRxFreq) elLblRxFreq.innerHTML = parsed.rx_freq_mhz + ' <small>MHz</small>';
+    if (parsed.tx_ctcss_hz && elLblTxCtcss) elLblTxCtcss.innerHTML = parsed.tx_ctcss_hz + ' <small>Hz</small>';
+    if (parsed.rx_ctcss_hz && elLblRxCtcss) elLblRxCtcss.innerHTML = parsed.rx_ctcss_hz + ' <small>Hz</small>';
+    if (parsed.tx_power_w && elLblTxPower) elLblTxPower.innerHTML = parsed.tx_power_w + ' <small>W</small>';
+    if ((parsed.duplex || parsed.bandwidth) && elLblDuplexBw) {
+      elLblDuplexBw.textContent = (parsed.duplex || 'Simplex') + ' / ' + (parsed.bandwidth || 'WIDE');
+    }
+  }
+
+  async function executeAutoQuery(queryType, params, desc) {
+    setMxStatus('busy', 'Transmitting ' + desc + ' over LoRa RF (916.8 MHz)...');
+    appendTerminal('TX ➔', 'Running query: ' + desc + '...');
+
+    setTimeout(function () {
+      if (timerInterval) setMxStatus('waiting', 'Awaiting MX921 response over air (RTT ~500ms)...');
+    }, 400);
+
+    try {
+      const payload = Object.assign({ action: 'mx921_auto_query', query: queryType, node_id: currentNodeId }, params || {});
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setMxStatus('ready', '✓ Received reply (' + (data.output ? data.output.length : 0) + ' bytes)', data.elapsed_ms + ' ms');
+        appendTerminal('RX 🠔', data.output || '(No response text)');
+        applyParsedData(data.parsed);
+      } else {
+        setMxStatus('error', data.error || 'Failed');
+        appendTerminal('ERR', data.error || 'Failed query');
+      }
+    } catch (err) {
+      setMxStatus('error', 'Network error');
+      appendTerminal('ERR', String(err));
+    }
+  }
+
+  async function executeCustomCmd(cmdStr) {
+    if (!cmdStr) return;
+    setMxStatus('busy', 'Transmitting command [' + cmdStr + '] over LoRa (916.8 MHz)...');
+    appendTerminal('TX ➔', cmdStr);
+
+    setTimeout(function () {
+      if (timerInterval) setMxStatus('waiting', 'Waiting for MX921 reply...');
+    }, 400);
+
+    try {
+      const payload = { action: 'mx921_cmd', cmd: cmdStr, node_id: currentNodeId };
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data && data.success) {
+        setMxStatus('ready', '✓ Reply received (' + (data.output ? data.output.length : 0) + ' bytes)', data.elapsed_ms + ' ms');
+        appendTerminal('RX 🠔', data.output || '(No response text)');
+        applyParsedData(data.parsed);
+      } else {
+        setMxStatus('error', data.error || 'Failed');
+        appendTerminal('ERR', data.error || 'Failed');
+      }
+    } catch (err) {
+      setMxStatus('error', 'Network error');
+      appendTerminal('ERR', String(err));
+    }
+  }
+
+  // Setup Button Listeners
+  if (elBtnMxIdentity) {
+    elBtnMxIdentity.addEventListener('click', function () {
+      executeAutoQuery('identity', {}, 'Read Identity');
+    });
+  }
+
+  if (elBtnMxChannel1) {
+    elBtnMxChannel1.addEventListener('click', function () {
+      executeAutoQuery('channel', { channel: 1 }, 'Read Channel 1');
+    });
+  }
+
+  if (elBtnMxConfig) {
+    elBtnMxConfig.addEventListener('click', function () {
+      executeAutoQuery('config', {}, 'Configuration Menu');
+    });
+  }
+
+  if (elBtnMxAlignment) {
+    elBtnMxAlignment.addEventListener('click', function () {
+      executeAutoQuery('alignment', {}, 'Alignment Menu');
+    });
+  }
+
+  if (elBtnMxResetMenu) {
+    elBtnMxResetMenu.addEventListener('click', function () {
+      executeAutoQuery('reset_menu', {}, 'Reset Menu (RMENU)');
+    });
+  }
+
+  if (elBtnSendCustomCmd && elInpMxCustomCmd) {
+    elBtnSendCustomCmd.addEventListener('click', function () {
+      const val = elInpMxCustomCmd.value.trim();
+      if (val) {
+        executeCustomCmd(val);
+        elInpMxCustomCmd.value = '';
+      }
+    });
+
+    elInpMxCustomCmd.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        const val = elInpMxCustomCmd.value.trim();
+        if (val) {
+          executeCustomCmd(val);
+          elInpMxCustomCmd.value = '';
+        }
+      }
+    });
+  }
+
+  if (elBtnSendEsc) {
+    elBtnSendEsc.addEventListener('click', function () {
+      executeCustomCmd('ESC');
+    });
+  }
+
+  if (elBtnSendEnter) {
+    elBtnSendEnter.addEventListener('click', function () {
+      executeCustomCmd('');
+    });
+  }
+
+  if (elBtnClearTerm && elTxtTerminalOut) {
+    elBtnClearTerm.addEventListener('click', function () {
+      elTxtTerminalOut.textContent = 'Console cleared. Ready for next command.';
+    });
+  }
+
   // Initialization
   setupGatewayIp();
   fetchState();

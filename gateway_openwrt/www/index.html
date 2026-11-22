@@ -89,6 +89,115 @@
         </div>
       </section>
 
+      <!-- Section 1.5: Spectra MX921 Interactive Diagnostics & Control Hub -->
+      <section class="card mx921-hub-card">
+        <div class="card-header flex-between">
+          <div class="header-left">
+            <h3>📻 Spectra MX921 Repeater Diagnostics &amp; Channel Hub</h3>
+            <span class="card-sub-label">Interactive RF &amp; Personality Inspection across 915 MHz LoRa</span>
+          </div>
+          <div class="header-right">
+            <span id="mxStatusPill" class="mx-status-pill status-ready">🟢 Ready (Port 9001)</span>
+          </div>
+        </div>
+
+        <div class="card-body">
+          <!-- Step-by-Step Live Progress / Feedback Banner -->
+          <div id="mxProgressBarContainer" class="mx-progress-wrapper" style="display: none;">
+            <div class="mx-progress-header">
+              <span id="mxProgressText" class="mx-progress-text">Transmitting command over LoRa (916.8 MHz)...</span>
+              <span id="mxProgressTimer" class="mx-progress-timer">0 ms</span>
+            </div>
+            <progress id="mxProgressBar" class="mx-progress-bar" max="100"></progress>
+          </div>
+
+          <!-- Quick Action Buttons (One-Click Inspectors) -->
+          <div class="mx-action-bar">
+            <button type="button" id="btnMxIdentity" class="btn-mx btn-primary">
+              <span class="btn-icon">📋</span> Read Identity
+            </button>
+            <button type="button" id="btnMxChannel1" class="btn-mx btn-success">
+              <span class="btn-icon">📻</span> Read Channel 1
+            </button>
+            <button type="button" id="btnMxConfig" class="btn-mx btn-info">
+              <span class="btn-icon">⚙️</span> Configuration Menu
+            </button>
+            <button type="button" id="btnMxAlignment" class="btn-mx btn-warning">
+              <span class="btn-icon">📈</span> Alignment Menu
+            </button>
+            <button type="button" id="btnMxResetMenu" class="btn-mx btn-secondary">
+              <span class="btn-icon">⬅️</span> Reset Menu (RMENU)
+            </button>
+          </div>
+
+          <!-- Structured Repeater & Channel Telemetry Summary Grid -->
+          <div class="mx-data-grid">
+            <!-- Repeater Personality Badge -->
+            <div class="mx-data-card personality-card">
+              <div class="mx-card-title">Repeater Personality</div>
+              <div class="personality-details">
+                <div class="param-row"><span class="param-lbl">Model:</span> <span id="lblMxModel" class="param-val">MX921D3D3H</span></div>
+                <div class="param-row"><span class="param-lbl">Serial:</span> <span id="lblMxSerial" class="param-val">91D300004</span></div>
+                <div class="param-row"><span class="param-lbl">Firmware:</span> <span id="lblMxVersion" class="param-val">v0.2.22</span></div>
+                <div class="param-row"><span class="param-lbl">Manufacturer:</span> <span class="param-val">Spectra Engineering</span></div>
+              </div>
+            </div>
+
+            <!-- Active Channel 1 Summary -->
+            <div class="mx-data-card channel-card">
+              <div class="mx-card-title">Channel 1 RF Parameters</div>
+              <div class="channel-details-grid">
+                <div class="ch-stat">
+                  <span class="ch-lbl">TX Frequency</span>
+                  <span id="lblTxFreq" class="ch-val text-accent">0.00000 <small>MHz</small></span>
+                </div>
+                <div class="ch-stat">
+                  <span class="ch-lbl">RX Frequency</span>
+                  <span id="lblRxFreq" class="ch-val text-accent">0.00000 <small>MHz</small></span>
+                </div>
+                <div class="ch-stat">
+                  <span class="ch-lbl">TX CTCSS Subtone</span>
+                  <span id="lblTxCtcss" class="ch-val">0.0 <small>Hz</small></span>
+                </div>
+                <div class="ch-stat">
+                  <span class="ch-lbl">RX CTCSS Subtone</span>
+                  <span id="lblRxCtcss" class="ch-val">0.0 <small>Hz</small></span>
+                </div>
+                <div class="ch-stat">
+                  <span class="ch-lbl">TX Output Power</span>
+                  <span id="lblTxPower" class="ch-val">50.0 <small>W</small></span>
+                </div>
+                <div class="ch-stat">
+                  <span class="ch-lbl">Mode &amp; Bandwidth</span>
+                  <span id="lblDuplexBw" class="ch-val">Simplex / WIDE</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Interactive Web Terminal & Direct Command Bar -->
+          <div class="mx-terminal-wrapper">
+            <div class="mx-terminal-header">
+              <span class="term-title">💻 Live Radio Serial Console (57600 baud via LoRa)</span>
+              <div class="term-tools">
+                <button type="button" id="btnSendEsc" class="btn-xs btn-tool" title="Send standalone ESC key to radio">ESC (Back)</button>
+                <button type="button" id="btnSendEnter" class="btn-xs btn-tool" title="Send standalone carriage return">Enter ⏎</button>
+                <button type="button" id="btnClearTerm" class="btn-xs btn-tool">Clear</button>
+              </div>
+            </div>
+
+            <!-- Scrollable Terminal Output Box -->
+            <pre id="txtTerminalOut" class="mx-terminal-display">Waiting for action... Click [Read Identity] or [Read Channel 1] above, or type a command below.</pre>
+
+            <!-- Command Input Bar -->
+            <div class="mx-command-bar">
+              <input type="text" id="inpMxCustomCmd" class="mx-cmd-input" placeholder="Enter MX921 command (e.g. RMENU, E, C, A, 1)..." autocomplete="off">
+              <button type="button" id="btnSendCustomCmd" class="btn-cmd-send">Send ➔</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Section 2: Quick Schedule & Node Health Panel -->
       <section class="secondary-grid">
         <!-- Schedule Config Panel -->
