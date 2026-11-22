@@ -10,11 +10,11 @@
   - **Remote Repeater Node Hardware:** White Heltec Wireless Stick Lite V3 (`HTIT-WB32LAF`, ESP32-S3FN8 + SX1262, 863–928 MHz HF) running FreeRTOS (PlatformIO / Arduino-ESP32).
   - **Repeater Electrical Interface:**
     - **MAX3232 3.3 V RS-232 Transceiver** powered via switched `Vext` (`GPIO 36`, active LOW) so it powers down completely during deep sleep.
-    - **MX921 Front RJ45 (`MIC`) Pinout (57,600 baud, 8-N-1, strictly 3-wire — all other pins isolated):**
-      - `RJ45 Pin 4` (MX921 `RXD`) <-> MAX3232 `T1OUT`
-      - `RJ45 Pin 5` (MX921 `TXD`) <-> MAX3232 `R1IN`
-      - `RJ45 Pin 7` (`GND`) <-> MAX3232 `GND`
-      - *(Pins 1, 2, 3, 6, 8 left completely disconnected to isolate +12 V mic bias, PTT, and audio lines).*
+    - **MX921 Front RJ45 (`MIC`) Pinout (57,600 baud, 8-N-1, strictly 3-wire — all other pins isolated, bench verified):**
+      - `RJ45 Pin 5` (`GND`) <-> MAX232/MAX3232 `Pin 15 (GND)`
+      - `RJ45 Pin 7` (MX921 `TXD`) <-> MAX232/MAX3232 `Pin 13 (R1IN)`
+      - `RJ45 Pin 8` (MX921 `RXD`) <-> MAX232/MAX3232 `Pin 14 (T1OUT)`
+      - *(Pins 1, 2, 3, 4, 6 left completely disconnected and isolated to protect against +8V/+12V mic bias, PTT keying, and audio lines).*
   - **Base Gateway Hardware:** Duinotech XC-4394 (Atheros AR9331 OpenWrt + ATmega328P + SX1276 915 MHz) connected to laptop/Mawson LAN via RJ45 Ethernet, powered by 12 V DC.
 
 - **Must Have:**
